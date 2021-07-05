@@ -1,0 +1,173 @@
+---
+title: "Twitter Word Cloud Creator"
+runtime: shiny
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+    source_code: embed
+    theme:
+      version: 4
+      bootswatch: minty
+resource_files:
+- .rtweet_token1.rds
+- .Renviron
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(rtweet)
+library(tidytext)
+library(wordcloud)
+library(stringr)
+library(flexdashboard)
+library(shiny)
+library(DT)
+
+```
+
+Sidebar {.sidebar} 
+-----------------------------------------------------------------------
+
+Choose from the options below to create a word cloud using the most commonly used words of any public Twitter account.
+
+*Examples: "@ndrew_bell", "@foxnews", "@cnn", "@tomhanks", "@tonyhawk"*
+
+```{r}
+
+textInput(
+  label = "Twitter handle",
+  inputId = "input_handle",
+  placeholder = "@your_twitter_handle"
+)
+
+numericInput(
+  label = "Search Last ___ Tweets",
+  inputId = "input_tweets_n",
+  value = 1000,
+  min = 10,
+  max = 3200
+)
+
+sliderInput(
+  label = "Number of Words",
+  inputId = "input_words_n",
+  min = 10,
+  max = 75,
+  value = 50
+)
+
+selectInput(
+  label = "Wordcloud Color",
+  inputId = "input_color",
+  choices = c("red", "orange", "yellow", "green", "blue", "purple", "black"),
+  selected = "black",
+  selectize = F
+)
+
+actionButton(
+  label = "Generate Wordcloud",
+  inputId = "input_execute"
+)
+
+ds.react <- eventReactive(input$input_execute, {
+  
+    rtweet::get_timeline(
+      user = input$input_handle,
+      n = input$input_tweets_n
+    )
+
+  })
+
+ds.table <- eventReactive(input$input_execute, {
+  
+  tryCatch({
+    ds.react() %>%
+      mutate(text = str_remove_all(text, "&amp;|&lt;|&gt;"),
+             text = str_remove_all(text, "\\s?(f|ht)(tp)(s?)(://)([^\\.]*)[\\.|/](\\S*)"),
+             text = str_remove_all(text, "[^\x01-\x7F]")) %>% 
+      unnest_tokens(word, text, token = "tweets") %>%
+      filter(!word %in% stop_words$word,
+             !word %in% str_remove_all(stop_words$word, "'"),
+             str_detect(word, "[a-z]"),
+             !str_detect(word, "^#"),         
+             !str_detect(word, "@\\S+")) %>%
+      count(word, sort = TRUE) %>%
+      slice_max(order_by = n, n = 50)
+  },
+  error = function(cond) {
+    message(paste("Account does not seem to exist"))
+    return(tibble(word = "Account Not Found", n = 1))
+  })
+})
+
+```
+
+
+Row 
+-----------------------------------------------------------------------
+
+### Word Cloud
+
+```{r}
+
+renderPlot({
+  
+  tryCatch({
+    ds.react() %>%
+      mutate(text = str_remove_all(text, "&amp;|&lt;|&gt;"),
+             text = str_remove_all(text, "\\s?(f|ht)(tp)(s?)(://)([^\\.]*)[\\.|/](\\S*)"),
+             text = str_remove_all(text, "[^\x01-\x7F]")) %>% 
+      unnest_tokens(word, text, token = "tweets") %>%
+      filter(!word %in% stop_words$word,
+             !word %in% str_remove_all(stop_words$word, "'"),
+             str_detect(word, "[a-z]"),
+             !str_detect(word, "^#"),         
+             !str_detect(word, "@\\S+")) %>%
+      count(word, sort = TRUE) %>% 
+      with(wordcloud(word, n, random.order = FALSE, max.words = input$input_words_n,
+                     color = input$input_color, scale = c(5,1)))
+  },
+  error = function(cond) {
+    message(paste("Account does not seem to exist"))
+    return(NA)
+  })
+  
+})
+  
+```
+
+### Most Used Words
+
+```{r}
+
+renderDataTable({
+  
+  DT::datatable(
+  data = ds.table(),
+  colnames = c("Word", "# of Occurances")
+  )
+  
+})
+
+```
+
+Row
+---------------
+
+### Favorite Word
+
+```{r}
+
+renderValueBox({
+  
+  ds.table() %>%
+    slice_max(order_by = n, n = 1) %>%
+    pull(var = word)
+  
+})
+
+```
+
+
+
