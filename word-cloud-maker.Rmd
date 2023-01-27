@@ -10,8 +10,7 @@ output:
       version: 4
       bootswatch: minty
 resource_files:
-- .rtweet_token1.rds
-- .Renviron
+- .default.rds
 ---
 
 ```{r setup, include=FALSE}
@@ -23,6 +22,8 @@ library(stringr)
 library(flexdashboard)
 library(shiny)
 library(DT)
+
+rtweet::auth_as("./.default.rds")
 
 ```
 
@@ -44,7 +45,7 @@ textInput(
 numericInput(
   label = "Search Last ___ Tweets",
   inputId = "input_tweets_n",
-  value = 1000,
+  value = 500,
   min = 10,
   max = 3200
 )
@@ -72,11 +73,15 @@ actionButton(
 
 ds.react <- eventReactive(input$input_execute, {
   
-    rtweet::get_timeline(
+    ds <- rtweet::get_timeline(
       user = input$input_handle,
       n = input$input_tweets_n
     )
+  
+  message(paste("Account", input$input_handle, "found"))
 
+  return(ds)
+  
   })
 
 ds.table <- eventReactive(input$input_execute, {
@@ -89,6 +94,7 @@ ds.table <- eventReactive(input$input_execute, {
       unnest_tokens(word, text, token = "tweets") %>%
       filter(!word %in% stop_words$word,
              !word %in% str_remove_all(stop_words$word, "'"),
+             word != "rt",
              str_detect(word, "[a-z]"),
              !str_detect(word, "^#"),         
              !str_detect(word, "@\\S+")) %>%
@@ -121,12 +127,14 @@ renderPlot({
       unnest_tokens(word, text, token = "tweets") %>%
       filter(!word %in% stop_words$word,
              !word %in% str_remove_all(stop_words$word, "'"),
+             word != "rt",
              str_detect(word, "[a-z]"),
              !str_detect(word, "^#"),         
              !str_detect(word, "@\\S+")) %>%
       count(word, sort = TRUE) %>% 
       with(wordcloud(word, n, random.order = FALSE, max.words = input$input_words_n,
-                     color = input$input_color, scale = c(5,1)))
+                     color = input$input_color, scale = c(5,1))) %>%
+      suppressWarnings()
   },
   error = function(cond) {
     message(paste("Account does not seem to exist"))
